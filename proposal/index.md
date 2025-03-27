@@ -2,7 +2,8 @@
 
 Maggie Gong & Youheng Yang
 
-## URL: https://hakuz-y.github.io/Parallel_AWT/proposal/
+## URL: 
+https://hakuz-y.github.io/Parallel_AWT/proposal/
 
 ## Summary:
 
@@ -13,7 +14,7 @@ This project aims to implement a parallel version of the Adaptive Wavelet Transf
 
 Wavelet transforms are used for analyzing data where features vary over different scales in signal and image processing for tasks such as compression, denoising, and multi-resolution analysis. Real-world signals often have smooth regions interrupted by abrupt changes, so rapidly decaying wave-like oscillation are being used to represent such data.
 
-Adaptive Wavelet Transform (AWT) takes this further by dynamically selecting wavelet basis functions based on local image characteristics, such as texture, edges, or smoothness. This adaptivity increases representation efficiency but introduces significant workload imbalance and data dependencies:
+To make it more interesting in parallelizing, Adaptive Wavelet Transform (AWT) dynamically selects wavelet basis functions based on local image characteristics, such as texture, edges, or smoothness. This adaptivity increases representation efficiency but introduces significant workload imbalance and data dependencies:
 - Computation in one region can influence the basis function selection in adjacent regions.
 - This inter-regional dependency complicates parallel execution, as decisions are no longer strictly local.
 
@@ -46,7 +47,7 @@ Data Movements:
 ## Resources:
 
 [Adaptive Wavelet Transformation](https://www.cosy.sbg.ac.at/~rkutil/publication/Kutil00a.pdf) \
-[Adaptive Wavelet Rendering](https://cseweb.ucsd.edu/~ravir/Overbeck2009AWR.pdf) \
+[Adaptive Wavelet Rendering](https://cseweb.ucsd.edu/~ravir/Overbeck2009AWR.pdf)
 
 It would be really helpful if we could have access of PSC machines and test beyond 8 threads.
 
