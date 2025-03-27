@@ -1,4 +1,4 @@
-# Parallel Adaptive Haar(2D Multi-level) Wavelet Transformation
+# Parallel 2D Multi-level Adaptive Wavelet Transformation
 
 Maggie Gong & Youheng Yang
 
@@ -13,8 +13,6 @@ This project aims to implement a parallel version of the Adaptive Wavelet Transf
 Wavelet transforms are used for analyzing data where features vary over different scales in signal and image processing for tasks such as compression, denoising, and multi-resolution analysis. Real-world signals often have smooth regions interrupted by abrupt changes, so rapidly decaying wave-like oscillation are being used to represent such data.
 
 To make it more interesting in parallelizing, AWT adapts wavelet basis functions based on local image characteristics, introducing significant data dependencies. The computation in one region can influence decisions in adjacent areas, complicating parallel execution.
-
-![alt text](image.png)
 
 Adaptive Wavelet Transform Overview:
 - Image Analysis: The image is divided into blocks, and each block is analyzed to identify characteristics such as edges, textures, and smooth regions.​
@@ -31,7 +29,7 @@ Workload Imbalance:
 
 Data Dependencies:
 - As wavelet coefficients overlap spatially, a single sample at location x affects multiple coefficients across levels due to the projection into wavelet basis, causing write conflicts when parallel threads try to update overlapping coefficients.
-- In the Multi-level 2D AWT, each wavelet transformation level depends on the previous level's coefficients, and there is also a sequential dependency where level N cannot start until level N-1 is complete, and we need to work around this potential bottleneck between levels.
+- In the 2D Multi-level AWT, each wavelet transformation level depends on the previous level's coefficients, and there is also a sequential dependency where level N cannot start until level N-1 is complete, and we need to work around this potential bottleneck between levels.
 
 Memory access characteristics
 - Memory access is irregular, so there’s non-contiguous memory writes during coefficient generation. The irregular data access pattern could cause cache utilization to drop.
@@ -43,8 +41,9 @@ Data Movements:
 
 ## Resources:
 
-[Adaptive Wavelet Transformation](https://www.cosy.sbg.ac.at/~rkutil/publication/Kutil00a.pdf)
-[Adaptive Wavelet Rendering](https://cseweb.ucsd.edu/~ravir/Overbeck2009AWR.pdf) 
+[Adaptive Wavelet Transformation](https://www.cosy.sbg.ac.at/~rkutil/publication/Kutil00a.pdf) \
+[Adaptive Wavelet Rendering](https://cseweb.ucsd.edu/~ravir/Overbeck2009AWR.pdf) \
+It would be really helpful if we could have access of PSC machines and test beyond 8 threads.
 
 
 ## Goals and Deliverables:
