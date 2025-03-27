@@ -2,7 +2,7 @@
 
 Maggie Gong & Youheng Yang
 
-## URL:
+## URL: https://hakuz-y.github.io/Parallel_AWT/proposal/
 
 ## Summary:
 
