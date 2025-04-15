@@ -8,6 +8,7 @@
 |4/16| Improve the sequential implementation (inplace details) | Maggie |
 |4/17| Optimize the shared memory model | Youheng |
 |4/18| Further optimize the algorithm | Maggie |
+|4/19| Finish current TODOs in the baseline and shared memory version |Youheng|
 |4/20| Transition to MPI implementation| Together |
 |4/21| Optimize MPI to achieve the targeting speedup (4-5x with 8 threads) | Maggie |
 |4/22| Experiment with PSC if we have the access, achieve the targeting speedup | Youheng |
@@ -30,7 +31,9 @@ We implemented the lifting scheme approach of wavelet transform, which involves 
 
 To make the transformation adaptive, we dynamically select the filter for each sample based on minimizing the local prediction error, which allows for a better representation of signal structure (e.g., edges).
 
-Once the baseline was completed, we used Open_MP to parallelize it under a shared memory model. We used directives such as loop construct during the row-wise and column-wise stages of the transformation as they are nested for loops. We measured initialization time, transformation time, reconstruction time and achieved a 4-5x speed up with 12 threads. We also created the metrics with MSE (Mean Squared Error) and SSIM (Structural similarity index measure) to evaluate the quality of the compressed image. The detailed results are in the section `Preliminary results`.
+Once the baseline was completed, we used Open_MP to parallelize it under a shared memory model. We used directives such as loop construct during the row-wise and column-wise stages of the transformation as they are nested for loops. We measured transformation time and achieved a 4-5x speedup with 8 threads and 6-7x speedup with 12 threads. We also created the metrics with MSE (Mean Squared Error) and SSIM (Structural similarity index measure) to evaluate the quality of the compressed image. The detailed results are in the section `Preliminary results`.
+
+There 2 different ways to handle the horizontal, vertical and diagnal coefficients details after the AWT: store in the image inplace or in separate matrixes. We have tried both deisgn and compared the speedup result to see which approach has a better memory access pattern and better for parallelizing, we chose to use separate stores for now, but we need to do more experiments before the final decision.
 
 ## Goals and Deliverables
 

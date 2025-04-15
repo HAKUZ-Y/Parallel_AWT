@@ -3,8 +3,8 @@ import numpy as np
 import cv2
 
 # input_txt = "./grayscale/8x8.txt_transform_1.txt"  # Your .txt file
-input_txt = "./grayscale/medium_8192.txt"
-output_img = "./origin/medium_8192.jpg"     # Desired image output file
+input_txt = "./reconstructed/easy_2048_level_11_t_10.00.txt"
+output_img = "./compress/easy_2048_level_11_t_10.00.jpg"     # Desired image output file
 
 # Load grayscale matrix from .txt file
 arr = np.loadtxt(input_txt)
