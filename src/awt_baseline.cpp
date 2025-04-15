@@ -1,5 +1,5 @@
-#include "metrics.hpp"
 #include "aws_common.hpp"
+#include "metrics.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -18,6 +18,7 @@
  *******************************************************************************/
 
 // mirror the boundary for predictions
+// TODO: optimize
 inline int mirror(int index, int length) {
     if (index < 0) {
         return -index;
@@ -29,7 +30,6 @@ inline int mirror(int index, int length) {
 
     return index;
 }
-
 
 namespace fs = std::filesystem;
 
@@ -106,6 +106,7 @@ void awt_1d(std::vector<float> &data, std::vector<float> &coefs, std::vector<int
     predictors.resize(n);
 
     // Predict step: predict odd indices from even indices
+    #pragma omp parallel for default(shared) schedule(static)
     for (int i = 0; i < n; ++i) {
         int odd_idx = 2 * i + 1;
         float min_err = INF;
@@ -144,25 +145,26 @@ void awt_1d(std::vector<float> &data, std::vector<float> &coefs, std::vector<int
     // Update step
     // TODO: is this the correct way/only way to update?
     // Need to match with the reverse reconstruction
+
     std::vector<float> result(data.size());
+#pragma omp parallel for default(shared) schedule(static)
     for (int i = 0; i < n; ++i) {
-        result[2 * i] = data[2 * i];  // start from even
-    
+        result[2 * i] = data[2 * i]; // start from even
+
         const auto &update_filter = AWT_UPDATES[predictors[i]];
         int len = update_filter.size();
         int start = i - (len / 2 - 1);
-    
+
         float update_sum = 0.0f;
         for (int j = 0; j < len; ++j) {
             int idx = mirror(start + j, n);
             update_sum += update_filter[j] * coefs[idx];
         }
-    
-        result[2 * i] += update_sum;     // updated even
-        result[2 * i + 1] = data[2 * i + 1];  // untouched odd
+
+        result[2 * i] += update_sum;         // updated even
+        result[2 * i + 1] = data[2 * i + 1]; // untouched odd
     }
     data = result;
-    
 }
 
 // Apply 2D AWT
@@ -172,15 +174,14 @@ void awt_2d(Matrix &img, Matrix &h_coefs, Matrix &v_coefs, Matrix &d_coefs,
     int cols = img[0].size();
 
     // row wise transform
-    int r;
-#pragma omp parallel for default(shared) private(r) schedule(static)
-    for (r = 0; r < rows; ++r) {
+#pragma omp parallel for default(shared) schedule(static)
+    for (int r = 0; r < rows; ++r) {
         std::vector<float> row = img[r];
         std::vector<float> row_coef;
         std::vector<int> row_predictors;
         awt_1d(row, row_coef, row_predictors);
 
-        #pragma omp parallel for
+// #pragma omp parallel for default(shared) schedule(static)
         for (int c = 0; c < cols / 2; ++c) {
             // approximation image
             img[r][c] = row[2 * c];
@@ -192,20 +193,20 @@ void awt_2d(Matrix &img, Matrix &h_coefs, Matrix &v_coefs, Matrix &d_coefs,
     }
 
 // column wise transform
-#pragma omp parallel for
+#pragma omp parallel for default(shared) schedule(static)
     for (int c = 0; c < cols / 2; ++c) {
         std::vector<float> col(rows);
         std::vector<float> col_coef;
         std::vector<int> col_predictors;
 
-        // TODO: optimize?
-        #pragma omp parallel for
+// TODO: optimize?
+// #pragma omp parallel for
         for (int r = 0; r < rows; ++r) {
             col[r] = img[r][c];
         }
         awt_1d(col, col_coef, col_predictors);
 
-        #pragma omp parallel for
+// #pragma omp parallel for
         for (int r = 0; r < rows / 2; ++r) {
             // approximation image
             img[r][c] = col[2 * r];
@@ -219,13 +220,13 @@ void awt_2d(Matrix &img, Matrix &h_coefs, Matrix &v_coefs, Matrix &d_coefs,
         std::vector<float> diag_coef;
         std::vector<int> diag_predictors;
 
-        // get diagonal coefficients
-        #pragma omp parallel for
+// get diagonal coefficients
+// #pragma omp parallel for
         for (int r = 0; r < rows; ++r) {
             diag[r] = h_coefs[r][c];
         }
         awt_1d(diag, diag_coef, diag_predictors);
-        #pragma omp parallel for
+// #pragma omp parallel for
         for (int r = 0; r < rows / 2; ++r) {
             d_coefs[r][c] = diag_coef[r];
             diag_pred_map[r][c] = diag_predictors[r];
@@ -256,8 +257,8 @@ void multi_level_awt(Matrix &img, int levels,
         // extract LL matrix from last level
         Matrix approx_img(rows, std::vector<float>(cols));
 
-        // copy the image
-        #pragma omp parallel for
+// copy the image
+#pragma omp parallel for default(shared) schedule(static)
         for (int r = 0; r < rows; ++r) {
             for (int c = 0; c < cols; ++c) {
                 approx_img[r][c] = img[r][c];
@@ -282,8 +283,8 @@ void multi_level_awt(Matrix &img, int levels,
         col_pred_maps.push_back(col_pred_map);
         diag_pred_maps.push_back(diag_pred_map);
 
-        // update the image with the approximation
-        #pragma omp parallel for
+// update the image with the approximation
+#pragma omp parallel for default(shared) schedule(static)
         for (int r = 0; r < rows / 2; ++r) {
             for (int c = 0; c < cols / 2; ++c) {
                 img[r][c] = approx_img[r][c];
@@ -310,16 +311,15 @@ void reconstruct_awt_1d(std::vector<float> &data, const std::vector<float> &coef
         const auto &update_filter = AWT_UPDATES[predictors[i]];
         int len = update_filter.size();
         int start = i - (len / 2 - 1);
-    
+
         float update_sum = 0.0f;
         for (int j = 0; j < len; ++j) {
             int idx = mirror(start + j, n);
             update_sum += update_filter[j] * coefs[idx];
         }
-    
+
         data[2 * i] -= update_sum;
     }
-    
 
     // Reverse predict step
     for (int i = 0; i < n; ++i) {
@@ -335,7 +335,7 @@ void reconstruct_awt_1d(std::vector<float> &data, const std::vector<float> &coef
         float pred_val = 0.0f;
 
         for (int j = 0; j < len; ++j) {
-            int idx = mirror(start_index + j * 2,data.size());
+            int idx = mirror(start_index + j * 2, data.size());
             // printf("idx: %d\n", idx);
             pred_val += filter[j] * data[idx];
         }
