@@ -78,7 +78,7 @@ We hope by the end of this project, we develop a deeper understanding of the cha
 
 - Week 1 (Mar 26th): complete the proposal, brainstorm idea, finalize project outline
 - Week 2 (April 2nd): implement the sequential C++ version of the algorithm, create test cases
-- Week 3 (April 15th): initial parallel implementation, create more comprehensive test cases
-- Week 4 (April 22nd): milestone report, transition from shared memory model to MPI, profiling
+- Week 3 (April 15th): initial parallel implementation, create more comprehensive test cases, milestone report
+- Week 4 (April 22nd): transition from shared memory model to MPI, profiling
 - Week 5 (April 28th): more profiling, data analysis and visualization, improvements, prepare final report
 - Week 5 (April 29th): presentation
