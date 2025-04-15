@@ -57,8 +57,22 @@ We plan to mainly provide a brief explanation of the algorithm, a walkthrough of
     - Some challenges and limitations we met during the implementation.
 
 ## Preliminary results
-We have started parallelizing the algorithm using the shared memory approach with OpenMP.
-TODO: speedup plots
+We have started parallelizing the algorithm using a shared memory model with OpenMP. All of the graphs are based on the total computation time, which includes both transformation and reconstruction. Detailed timing results can be found in the spreadsheet via [this link](https://docs.google.com/spreadsheets/d/1CLbMLoAtQsBh6Fv77XDcrEcy_toYOyXFzGOQT93yr5s/edit?usp=sharing). 
+
+All curves demonstrate a consistent upward trend as the number of threads increases, which means our implementation scales well so far, and that the per-thread workload is balanced. This also suggests that the 12 available cores in the current system haven't saturated the full parallel potential of the program.
+
+ We have yet to find the threshold when the speedup would start to taper off or degrade, which would need to be done on the GHC or PSC machines. We would also likely to be expecting a different speedup trend and scaling behavior once switching to an MPI model due to the different communication pattern and resulting overhead.
+> Total speedup for easy_2048
+
+![alt text](graphs/image.png)
+
+> Total speedup for medium_8192
+
+![alt text](graphs/image-1.png)
+
+> Total speedup for hard_16384
+
+![alt text](graphs/image-2.png)
 
 
 ## Concerns
