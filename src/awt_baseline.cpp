@@ -1,4 +1,5 @@
 #include "metrics.hpp"
+#include "aws_common.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -12,45 +13,23 @@
 #include <unistd.h>
 #include <vector>
 
-using Matrix = std::vector<std::vector<float>>;
-constexpr float INF = 1e9f;
-
-// Predictors
-// TODO: find more with some sources
-// Assume odd lenght for now
-const Matrix AWT_PREDICTORS = {
-    // Avg of left and right neighbors
-    {0.5f, 0, 0.5f},
-
-    // Only Left
-    {1.0f, 0, 0.0f},
-
-    // Only Right
-    {0.0f, 0, 1.0f},
-
-    // quadratic polynomials
-    {-0.25f, 0, 0.75f, 0, 0.75f, 0, -0.25f},
-
-    // Gaussian-like weighting
-    {0.125f, 0, 0.375f, 0, 0.375f, 0, 0.125f},
-
-    // Four-point smoother
-    {0.1f, 0, 0.4f, 0, 0.4f, 0, 0.1f},
-
-    // Wider high-order polynomial annihilation
-    {-0.0625f, 0, 0.25f, 0, 0.625f, 0, 0.25f, 0, -0.0625f},
-
-    // Edge-aware low-bias average
-    {0.4f, 0, 0.6f}};
-
 /*******************************************************************************
  *                              Helper Functions                               *
  *******************************************************************************/
 
-// Clamp the boundary for predictions
-inline int clamp(int x, int min, int max) {
-    return std::max(min, std::min(max, x));
+// mirror the boundary for predictions
+inline int mirror(int index, int length) {
+    if (index < 0) {
+        return -index;
+    }
+
+    if (index >= length) {
+        return 2 * length - index - 2;
+    }
+
+    return index;
 }
+
 
 namespace fs = std::filesystem;
 
@@ -132,21 +111,21 @@ void awt_1d(std::vector<float> &data, std::vector<float> &coefs, std::vector<int
         float min_err = INF;
         float min_coef = 0.0f;
         int pred_index = 0;
-
+        // printf("------ODD idx: %d\n", odd_idx);
         // find the best predictor adaptively
         // TODO: optimize
         for (size_t p = 0; p < AWT_PREDICTORS.size(); ++p) {
             const auto &filter = AWT_PREDICTORS[p];
             int len = filter.size();
-            int start_index = odd_idx - len / 2;
+            int start_index = odd_idx - len + 1;
             float pred_val = 0.0f;
 
             for (int j = 0; j < len; ++j) {
-                int idx = clamp(start_index + j, 0, data.size() - 1);
-                if (idx % 2 == 0) {
-                    pred_val += filter[j] * data[idx];
-                }
+                int idx = mirror(start_index + j * 2, data.size());
+                // printf("idx: %d\n", idx);
+                pred_val += filter[j] * data[idx];
             }
+            // printf("---\n");
 
             float err = std::abs(data[odd_idx] - pred_val);
             if (err < min_err) {
@@ -165,9 +144,25 @@ void awt_1d(std::vector<float> &data, std::vector<float> &coefs, std::vector<int
     // Update step
     // TODO: is this the correct way/only way to update?
     // Need to match with the reverse reconstruction
+    std::vector<float> result(data.size());
     for (int i = 0; i < n; ++i) {
-        data[2 * i] += coefs[i] * 0.5f;
+        result[2 * i] = data[2 * i];  // start from even
+    
+        const auto &update_filter = AWT_UPDATES[predictors[i]];
+        int len = update_filter.size();
+        int start = i - (len / 2 - 1);
+    
+        float update_sum = 0.0f;
+        for (int j = 0; j < len; ++j) {
+            int idx = mirror(start + j, n);
+            update_sum += update_filter[j] * coefs[idx];
+        }
+    
+        result[2 * i] += update_sum;     // updated even
+        result[2 * i + 1] = data[2 * i + 1];  // untouched odd
     }
+    data = result;
+    
 }
 
 // Apply 2D AWT
@@ -312,27 +307,39 @@ void reconstruct_awt_1d(std::vector<float> &data, const std::vector<float> &coef
     // Undo update step
     // TODO: match the forward side if changed
     for (int i = 0; i < n; ++i) {
-        data[2 * i] -= coefs[i] * 0.5f;
+        const auto &update_filter = AWT_UPDATES[predictors[i]];
+        int len = update_filter.size();
+        int start = i - (len / 2 - 1);
+    
+        float update_sum = 0.0f;
+        for (int j = 0; j < len; ++j) {
+            int idx = mirror(start + j, n);
+            update_sum += update_filter[j] * coefs[idx];
+        }
+    
+        data[2 * i] -= update_sum;
     }
+    
 
     // Reverse predict step
     for (int i = 0; i < n; ++i) {
         int odd_idx = 2 * i + 1;
+        // printf("|||||||||||ODD idx: %d\n", odd_idx);
 
         // get the predictor used
         int pred_index = predictors[i];
         const auto &filter = AWT_PREDICTORS[pred_index];
 
         int len = filter.size();
-        int start_index = odd_idx - len / 2;
+        int start_index = odd_idx - len + 1;
         float pred_val = 0.0f;
 
         for (int j = 0; j < len; ++j) {
-            int idx = clamp(start_index + j, 0, data.size() - 1);
-            if (idx % 2 == 0) {
-                pred_val += filter[j] * data[idx];
-            }
+            int idx = mirror(start_index + j * 2,data.size());
+            // printf("idx: %d\n", idx);
+            pred_val += filter[j] * data[idx];
         }
+        // printf("|||\n");
 
         // Reconstruct odd sample
         data[odd_idx] = pred_val + coefs[i];
@@ -565,14 +572,14 @@ int main(int argc, char *argv[]) {
                     horizontal_coefs, vertical_coefs, diagonal_coefs,
                     row_pred_maps, col_pred_maps, diag_pred_maps);
 
-    const double compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - transform_start).count();
-    std::cout << "\033[31mComputation time (sec): " << std::fixed << std::setprecision(10) << compute_time << "\033[0m\n";
+    // const double compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - transform_start).count();
+    // std::cout << "\033[31mComputation time (sec): " << std::fixed << std::setprecision(10) << compute_time << "\033[0m\n";
     const double transformation_time = std::chrono::duration_cast<std::chrono::duration<double>>(reconst_start - transform_start).count();
     std::cout << "\033[31mTransformation time (sec): " << std::fixed << std::setprecision(10) << transformation_time << "\033[0m\n";
     const double reconstruction_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - reconst_start).count();
-    std::cout << "\033[31mReconstruction time (sec): " << std::fixed << std::setprecision(10) << reconstruction_time << "\033[0m\n";
-    const double total_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - init_start).count();
-    std::cout << "\033[34mTotal time (sec): " << std::fixed << std::setprecision(10) << total_time << "\033[0m\n";
+    std::cout << "\033[34mReconstruction time (sec): " << std::fixed << std::setprecision(10) << reconstruction_time << "\033[0m\n";
+    // const double total_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - init_start).count();
+    // std::cout << "\033[34mTotal time (sec): " << std::fixed << std::setprecision(10) << total_time << "\033[0m\n";
 
     // Save reconstructed image
     // save_image_to_file(reconst_file, reconst_img);

@@ -5,8 +5,8 @@
 
 | Deadline | Task | Partner |
 |------|------|---------|
-|4/16| Fix the sequential implementation (correctness) | Maggie |
-|4/17| Fully Complete the shared memory model | Youheng |
+|4/16| Improve the sequential implementation (inplace details) | Maggie |
+|4/17| Optimize the shared memory model | Youheng |
 |4/18| Further optimize the algorithm | Maggie |
 |4/20| Transition to MPI implementation| Together |
 |4/21| Optimize MPI to achieve the targeting speedup (4-5x with 8 threads) | Maggie |
@@ -34,7 +34,7 @@ Once the baseline was completed, we used Open_MP to parallelize it under a share
 
 ## Goals and Deliverables
 
-Currently, we followed our schedule and goals well in the proposal. In the first week, we successfully implemented a baseline of image compression by using a 2D multi-level Adaptive Wavelet Transformation and Reconstruction with the following steps: 1D [discrete wavelet transformation](https://en.wikipedia.org/wiki/Discrete_wavelet_transform) --> 2D DWT --> 2D multi-level DWT -> 2D multi-level AWT.
+Currently, we followed our schedule and goals well in the proposal. In the first week, we successfully implemented a baseline of image compression by using a 2D multi-level Adaptive Wavelet Transformation and Reconstruction with the following steps: 1D [discrete wavelet transformation](https://en.wikipedia.org/wiki/Discrete_wavelet_transform) --> 2D DWT --> 2D multi-level DWT --> 1D AWT --> 2D AWT --> 2D multi-level AWT.
 In the second week, we created 3 test dataset: easy_2048, medium_8192, hard_16384. Since the largest test file has a size of 1.6GB, we didn't push it into our repo, but included the original image and the script to generate the grayscale txt. We also created 2 metrics, MSE and ISSM to test the correctness of our implementation, which should be 0 and 1 respectively for a threshold of 0. Finally, we parallelized the transformation and reconstruction by using the Open_MP, acheving a 4-5x speedup with 12 threads.
 
 We believe we could finish the next deliverable that uses MPI model. Though we are not fully confident to achieve an optimal speedup as the shared memory model due to the communication complexity of AWT, we will try to optimize it as much as possible. similarly, the perfect speedup in the "nice to haves" section of the proposal might be hard to achieve, but we will use different strategies to see the different optimization results and analyze them as well.

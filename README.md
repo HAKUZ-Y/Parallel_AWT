@@ -10,5 +10,4 @@ Example:
 TODO:
 - Is the algo itself correct?
 - test files are too large for harder test
-- computation times kinds of too fast 0.1 for easy, 1.8 for medium, 3.0 for large
 - Should we batch images?
