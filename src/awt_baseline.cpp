@@ -19,9 +19,29 @@ constexpr float INF = 1e9f;
 // TODO: find more with some sources
 // Assume odd lenght for now
 const Matrix AWT_PREDICTORS = {
-    {0},
+    // Avg of left and right neighbors
     {0.5f, 0, 0.5f},
-    {-0.125f, 0, 0.25f, 0.75f, 0.25f, 0, -0.125f}};
+
+    // Only Left
+    {1.0f, 0, 0.0f},
+
+    // Only Right
+    {0.0f, 0, 1.0f},
+
+    // quadratic polynomials
+    {-0.25f, 0, 0.75f, 0, 0.75f, 0, -0.25f},
+
+    // Gaussian-like weighting
+    {0.125f, 0, 0.375f, 0, 0.375f, 0, 0.125f},
+
+    // Four-point smoother
+    {0.1f, 0, 0.4f, 0, 0.4f, 0, 0.1f},
+
+    // Wider high-order polynomial annihilation
+    {-0.0625f, 0, 0.25f, 0, 0.625f, 0, 0.25f, 0, -0.0625f},
+
+    // Edge-aware low-bias average
+    {0.4f, 0, 0.6f}};
 
 /*******************************************************************************
  *                              Helper Functions                               *
@@ -165,6 +185,7 @@ void awt_2d(Matrix &img, Matrix &h_coefs, Matrix &v_coefs, Matrix &d_coefs,
         std::vector<int> row_predictors;
         awt_1d(row, row_coef, row_predictors);
 
+        #pragma omp parallel for
         for (int c = 0; c < cols / 2; ++c) {
             // approximation image
             img[r][c] = row[2 * c];
@@ -175,19 +196,21 @@ void awt_2d(Matrix &img, Matrix &h_coefs, Matrix &v_coefs, Matrix &d_coefs,
         }
     }
 
-    // column wise transform
-    #pragma omp parallel for
+// column wise transform
+#pragma omp parallel for
     for (int c = 0; c < cols / 2; ++c) {
         std::vector<float> col(rows);
         std::vector<float> col_coef;
         std::vector<int> col_predictors;
 
         // TODO: optimize?
+        #pragma omp parallel for
         for (int r = 0; r < rows; ++r) {
             col[r] = img[r][c];
         }
         awt_1d(col, col_coef, col_predictors);
 
+        #pragma omp parallel for
         for (int r = 0; r < rows / 2; ++r) {
             // approximation image
             img[r][c] = col[2 * r];
@@ -202,10 +225,12 @@ void awt_2d(Matrix &img, Matrix &h_coefs, Matrix &v_coefs, Matrix &d_coefs,
         std::vector<int> diag_predictors;
 
         // get diagonal coefficients
+        #pragma omp parallel for
         for (int r = 0; r < rows; ++r) {
             diag[r] = h_coefs[r][c];
         }
         awt_1d(diag, diag_coef, diag_predictors);
+        #pragma omp parallel for
         for (int r = 0; r < rows / 2; ++r) {
             d_coefs[r][c] = diag_coef[r];
             diag_pred_map[r][c] = diag_predictors[r];
@@ -237,6 +262,7 @@ void multi_level_awt(Matrix &img, int levels,
         Matrix approx_img(rows, std::vector<float>(cols));
 
         // copy the image
+        #pragma omp parallel for
         for (int r = 0; r < rows; ++r) {
             for (int c = 0; c < cols; ++c) {
                 approx_img[r][c] = img[r][c];
@@ -262,6 +288,7 @@ void multi_level_awt(Matrix &img, int levels,
         diag_pred_maps.push_back(diag_pred_map);
 
         // update the image with the approximation
+        #pragma omp parallel for
         for (int r = 0; r < rows / 2; ++r) {
             for (int c = 0; c < cols / 2; ++c) {
                 img[r][c] = approx_img[r][c];
@@ -498,7 +525,6 @@ int main(int argc, char *argv[]) {
     }
 
     load_image_from_file(input_file, original_img);
-
 
     // check image or levels out of range: (1 - log2(n))
     if (empty(original_img) || levels < 1 || levels > floor(log2(original_img.size()))) {
