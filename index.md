@@ -3,8 +3,8 @@
 Maggie Gong & Youheng Yang
 
 ## URL: 
-- Proposal: https://hakuz-y.github.io/Parallel_AWT/proposal/
-- Milestone: https://hakuz-y.github.io/Parallel_AWT/milestone/
+- [Proposal Page](https://hakuz-y.github.io/Parallel_AWT/proposal/)
+- [Milestone Page](https://hakuz-y.github.io/Parallel_AWT/milestone/)
 
 ## Summary
 
