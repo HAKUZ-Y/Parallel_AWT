@@ -1,6 +1,9 @@
 # Milestone Report
 
 
+URL: https://hakuz-y.github.io/Parallel_AWT/milestone/
+
+
 ## Updated Schedule
 
 | Deadline | Task | Partner |
@@ -49,9 +52,9 @@ We plan to mainly provide a brief explanation of the algorithm, a walkthrough of
 
 - Visualizations:
     - A simple demo compares the image compression speed between a sequential, shared memory model, and MPI model.
-    - Some plots shows the speedup and metrics of 2 different parallelism with different levels and threshold
+    - Some plots shows the speedup and metrics of 2 different parallelism with different levels and threshold.
 
-- Graphs:
+- Contexs:
     - Some main conclusion in our projects.
     - What we learned from our sources, and what we learned during the implementation and optimization.
     - Some challenges and limitations we met during the implementation.
