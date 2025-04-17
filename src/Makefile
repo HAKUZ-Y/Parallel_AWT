@@ -5,8 +5,8 @@ CXXFLAGS := -std=c++20 -O2 -Wall -Wextra -pedantic -fopenmp \
 
 LDFLAGS := -L/opt/homebrew/opt/libomp/lib
 
-TARGET := awt_baseline
-SRCS := awt_baseline.cpp
+TARGET := awt
+SRCS := main.cpp
 OBJS := $(SRCS:.cpp=.o)
 
 all: $(TARGET)
