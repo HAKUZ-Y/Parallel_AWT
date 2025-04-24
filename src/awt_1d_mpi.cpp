@@ -156,23 +156,37 @@ void test(std::vector<float> signal, int pid, int nproc) {
     std::vector<float> coefs;
     std::vector<float> predictors;
 
-    if (pid == 0) {
-        std::cout << "Original:\n";
-        for (float x : signal)
-            std::cout << x << " ";
-        std::cout << "\n";
-    }
+    // if (pid == 0) {
+    //     std::cout << "Original:\n";
+    //     for (float x : signal)
+    //         std::cout << x << " ";
+    //     std::cout << "\n";
+    // }
 
     MPI_Bcast(signal.data(), signal.size(), MPI_FLOAT, 0, MPI_COMM_WORLD);
 
+    const auto compute_start = std::chrono::steady_clock::now();
+
+    // transformation
     awt_transform_1d_mpi(signal, coefs, predictors, pid, nproc);
 
     if (pid == 0) {
-        std::cout << "After AWT ([approx | detail]):\n";
-        for (float x : signal)
-            std::cout << x << " ";
-        std::cout << "\n";
+        // std::cout << "After AWT ([approx | detail]):\n";
+        // for (float x : signal)
+        //     std::cout << x << " ";
+        // std::cout << "\n";
+
+        const double compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - compute_start).count();
+        std::cout << "\033[31mComputation time (sec): " << std::fixed << std::setprecision(10) << compute_time << "\033[0m\n";
     }
+}
+
+std::vector<float> generate_large_signal(int size) {
+    std::vector<float> signal(size);
+    for (int i = 0; i < size; ++i) {
+        signal[i] = i + i / 2; // repeating pattern with offset
+    }
+    return signal;
 }
 
 int main(int argc, char *argv[]) {
@@ -186,7 +200,9 @@ int main(int argc, char *argv[]) {
     // Get total number of processes
     MPI_Comm_size(MPI_COMM_WORLD, &nproc);
 
-    std::vector<float> signal = {1.1, 2.2, 3.3, 4.4, 5.5, 6.66, 7.77, 8.88, 9.99, 10};
+    // std::vector<float> signal = {1.1, 2.2, 3.3, 4.4, 5.5, 6.66, 7.77, 8.88, 9.99, 10};
+    std::vector<float> signal = generate_large_signal(1000000); // 1 million elements
+
     test(signal, pid, nproc);
 
     MPI_Finalize();
