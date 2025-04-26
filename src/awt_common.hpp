@@ -7,7 +7,7 @@
 #include <format>
 #include <fstream>
 #include <iostream>
-#include <omp.h>
+#include <mpi.h>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -203,6 +203,7 @@ void load_image_from_file(const std::string &filename, Matrix &img) {
     std::ifstream infile(filename);
     if (!infile) {
         std::cerr << "Error: Could not open file in load_image_from_file " << filename << std::endl;
+        MPI_Finalize();
         exit(EXIT_FAILURE);
     }
 
@@ -225,6 +226,7 @@ void load_image_from_file(const std::string &filename, Matrix &img) {
     // check square image
     if (img.size() != img[0].size()) {
         std::cerr << "Error: Invalid image size " << img.size() << "x" << img[0].size() << std::endl;
+        MPI_Finalize();
         exit(EXIT_FAILURE);
     }
 
@@ -237,6 +239,7 @@ void save_image_to_file(const std::string &filename, const Matrix &img) {
     std::ofstream outfile(filename);
     if (!outfile) {
         std::cerr << "Error: Could not open file in save_image_to_file" << filename << std::endl;
+        MPI_Finalize();
         exit(EXIT_FAILURE);
     }
 

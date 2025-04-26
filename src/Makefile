@@ -1,9 +1,12 @@
+# Use mpic++ as the compiler driver
+MPICXX := mpic++
 CXX := /opt/homebrew/opt/llvm/bin/clang++
 
+# Compilation flags
 CXXFLAGS := -std=c++20 -O2 -Wall -Wextra -pedantic -fopenmp \
             -I/opt/homebrew/opt/libomp/include
 
-LDFLAGS := -L/opt/homebrew/opt/libomp/lib
+LDFLAGS := -L/opt/homebrew/opt/libomp/lib -lomp
 
 TARGET := awt
 SRCS := main.cpp
@@ -13,19 +16,16 @@ DEPS := $(SRCS:.cpp=.d)
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS) $(LDFLAGS)
+	$(MPICXX) $(CXXFLAGS) -o $(TARGET) $(OBJS) $(LDFLAGS)
 
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+	$(MPICXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
-
+# Include generated dependency files
 -include $(DEPS)
 
 
-run: $(TARGET)
-	./$(TARGET)
-
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(OBJS) $(TARGET) $(DEPS)
 
 .PHONY: all run clean
