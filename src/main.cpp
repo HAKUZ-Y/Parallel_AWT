@@ -150,7 +150,7 @@ int main(int argc, char *argv[]) {
         // std::cout << "\033[34mTotal time (sec): " << std::fixed << std::setprecision(10) << total_time << "\033[0m\n";
 
         // Save transformed image
-        save_image_to_file(transformed_file, transformed_img);
+        // save_image_to_file(transformed_file, transformed_img);
         // Save reconstructed image
         // save_image_to_file(reconst_file, reconst_img);
         // std::cout << "Reconstructed image saved to: " << reconst_file << std::endl;
