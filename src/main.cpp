@@ -19,7 +19,7 @@ int main(int argc, char *argv[]) {
     std::string input_file;
     Matrix original_img;
     int levels = 1;
-    float threshold = 0.0f;
+    double threshold = 0.0;
     int num_threads = 1;
     int model = 0; // 0 for shared memory, 1 for MPI
 
@@ -75,11 +75,14 @@ int main(int argc, char *argv[]) {
 
     const auto transform_start = std::chrono::steady_clock::now();
 
-    std::vector<Matrix> horizontal_coefs, vertical_coefs, diagonal_coefs;
     std::vector<Matrix> row_pred_maps, col_pred_maps, diag_pred_maps;
     Matrix transformed_img = original_img;
+    std::string transformed_file = "../dataset/transformed/" + filename +
+                                   "_level_" + std::to_string(levels) +
+                                   "_t_" + std::format("{:.2f}", threshold) + ".txt";
+
     std::chrono::steady_clock::time_point reconst_start;
-    std::string reconst_file = "../dataset/reconstrcuted/" + filename +
+    std::string reconst_file = "../dataset/reconstructed/" + filename +
                                "_level_" + std::to_string(levels) +
                                "_t_" + std::format("{:.2f}", threshold) + ".txt";
     Matrix reconst_img;
@@ -89,21 +92,15 @@ int main(int argc, char *argv[]) {
         std::cout << "Running in Shared Memory Model...\n";
 
         // Apply multi-level AWT
-        awt_multi_level_shared(transformed_img, levels, horizontal_coefs, vertical_coefs, diagonal_coefs,
-                               row_pred_maps, col_pred_maps, diag_pred_maps);
+        awt_multi_level_shared(transformed_img, levels, threshold, row_pred_maps, col_pred_maps, diag_pred_maps);
 
         // TODO: visulizing the coefficients
 
-        // TODO: coudl we integrate to the transformation
-        if (threshold > 0.0f) {
-            apply_thresholding(horizontal_coefs, vertical_coefs, diagonal_coefs, threshold);
-        }
 
         reconst_start = std::chrono::steady_clock::now();
 
         reconst_img = transformed_img;
         reconst_awt_shared(reconst_img, levels,
-                           horizontal_coefs, vertical_coefs, diagonal_coefs,
                            row_pred_maps, col_pred_maps, diag_pred_maps);
     } else {
         // MPI mode
@@ -120,8 +117,11 @@ int main(int argc, char *argv[]) {
     // const double total_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - init_start).count();
     // std::cout << "\033[34mTotal time (sec): " << std::fixed << std::setprecision(10) << total_time << "\033[0m\n";
 
+
+    // Save transformed image
+    save_image_to_file(transformed_file, transformed_img);
     // Save reconstructed image
-    // save_image_to_file(reconst_file, reconst_img);
+    save_image_to_file(reconst_file, reconst_img);
     std::cout << "Reconstructed image saved to: " << reconst_file << std::endl;
 
     // Metrics computation

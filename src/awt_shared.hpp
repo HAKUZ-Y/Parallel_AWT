@@ -14,23 +14,22 @@
 #include <unistd.h>
 #include <vector>
 
-
 /*******************************************************************************
  *                               AWT Transformation                            *
  *******************************************************************************/
 
 // Apply 1D AWT
-void awt_1d_shared(std::vector<float> &data, std::vector<float> &coefs, std::vector<int> &predictors) {
+void awt_1d_shared(std::vector<double> &data, std::vector<double> &coefs, std::vector<int> &predictors) {
     int n = data.size() / 2;
     coefs.resize(n);
     predictors.resize(n);
 
-    // Predict step: predict odd indices from even indices
-    #pragma omp parallel for default(shared) schedule(static)
+// Predict step: predict odd indices from even indices
+#pragma omp parallel for default(shared) schedule(static)
     for (int i = 0; i < n; ++i) {
         int odd_idx = 2 * i + 1;
-        float min_err = INF;
-        float min_coef = 0.0f;
+        double min_err = INF;
+        double min_coef = 0.0;
         int pred_index = 0;
 
         // find the best predictor adaptively
@@ -39,14 +38,14 @@ void awt_1d_shared(std::vector<float> &data, std::vector<float> &coefs, std::vec
             const auto &filter = AWT_PREDICTORS[p];
             int len = filter.size();
             int start_index = odd_idx - len + 1;
-            float pred_val = 0.0f;
+            double pred_val = 0.0;
 
             for (int j = 0; j < len; ++j) {
                 int idx = mirror(start_index + j * 2, data.size());
                 pred_val += filter[j] * data[idx];
             }
 
-            float err = std::abs(data[odd_idx] - pred_val);
+            double err = std::abs(data[odd_idx] - pred_val);
             if (err < min_err) {
                 min_err = err;
                 min_coef = data[odd_idx] - pred_val;
@@ -64,7 +63,7 @@ void awt_1d_shared(std::vector<float> &data, std::vector<float> &coefs, std::vec
     // TODO: is this the correct way/only way to update?
     // Need to match with the reverse reconstruction
 
-    std::vector<float> result(data.size());
+    std::vector<double> result(data.size());
 #pragma omp parallel for default(shared) schedule(static)
     for (int i = 0; i < n; ++i) {
         result[2 * i] = data[2 * i]; // start from even
@@ -73,7 +72,7 @@ void awt_1d_shared(std::vector<float> &data, std::vector<float> &coefs, std::vec
         int len = update_filter.size();
         int start = i - (len / 2 - 1);
 
-        float update_sum = 0.0f;
+        double update_sum = 0.0;
         for (int j = 0; j < len; ++j) {
             int idx = mirror(start + j, n);
             update_sum += update_filter[j] * coefs[idx];
@@ -86,25 +85,30 @@ void awt_1d_shared(std::vector<float> &data, std::vector<float> &coefs, std::vec
 }
 
 // Apply 2D AWT
-void awt_2d_shared(Matrix &img, Matrix &h_coefs, Matrix &v_coefs, Matrix &d_coefs,
-            Matrix &row_pred_map, Matrix &col_pred_map, Matrix &diag_pred_map) {
+void awt_2d_shared(Matrix &img,
+                   Matrix &row_pred_map,
+                   Matrix &col_pred_map,
+                   Matrix &diag_pred_map,
+                   double threshold) {
     int rows = img.size();
     int cols = img[0].size();
+    int half_rows = rows / 2;
+    int half_cols = cols / 2;
 
     // row wise transform
 #pragma omp parallel for default(shared) schedule(static)
     for (int r = 0; r < rows; ++r) {
-        std::vector<float> row = img[r];
-        std::vector<float> row_coef;
+        std::vector<double> row = img[r];
+        std::vector<double> row_coef;
         std::vector<int> row_predictors;
         awt_1d_shared(row, row_coef, row_predictors);
 
-// #pragma omp parallel for default(shared) schedule(static)
-        for (int c = 0; c < cols / 2; ++c) {
-            // approximation image
+        for (int c = 0; c < half_cols; ++c) {
+            // LL region: approximation image
             img[r][c] = row[2 * c];
-            // horizontal coefficients for reconstruction
-            h_coefs[r][c] = row_coef[c];
+            // HL region: horizontal coefficients for reconstruction
+            // compress the coefficients by the threshold
+            img[r][half_cols + c] = (std::abs(row_coef[c]) < threshold) ? 0.0 : row_coef[c];
             // row predictor map
             row_pred_map[r][c] = row_predictors[c];
         }
@@ -112,68 +116,59 @@ void awt_2d_shared(Matrix &img, Matrix &h_coefs, Matrix &v_coefs, Matrix &d_coef
 
 // column wise transform
 #pragma omp parallel for default(shared) schedule(static)
-    for (int c = 0; c < cols / 2; ++c) {
-        std::vector<float> col(rows);
-        std::vector<float> col_coef;
+    for (int c = 0; c < half_cols; ++c) {
+        std::vector<double> col(rows);
+        std::vector<double> col_coef;
         std::vector<int> col_predictors;
 
-// TODO: optimize?
-// #pragma omp parallel for
+        // TODO: optimize?
         for (int r = 0; r < rows; ++r) {
             col[r] = img[r][c];
         }
         awt_1d_shared(col, col_coef, col_predictors);
 
-// #pragma omp parallel for
-        for (int r = 0; r < rows / 2; ++r) {
-            // approximation image
+        for (int r = 0; r < half_rows; ++r) {
+            // LL region: approximation image
             img[r][c] = col[2 * r];
-            // vertical coefficients for reconstruction
-            v_coefs[r][c] = col_coef[r];
+            // LH region: vertical coefficients for reconstruction
+            img[r + half_rows][c] = (std::abs(col_coef[r]) < threshold) ? 0.0 : col_coef[r];
             // column predictor map
             col_pred_map[r][c] = col_predictors[r];
         }
 
-        std::vector<float> diag(rows);
-        std::vector<float> diag_coef;
+        std::vector<double> diag(rows);
+        std::vector<double> diag_coef;
         std::vector<int> diag_predictors;
 
-// get diagonal coefficients
-// #pragma omp parallel for
+        // get diagonal coefficients
         for (int r = 0; r < rows; ++r) {
-            diag[r] = h_coefs[r][c];
+            diag[r] = img[r][c + half_cols];
         }
+
         awt_1d_shared(diag, diag_coef, diag_predictors);
-// #pragma omp parallel for
-        for (int r = 0; r < rows / 2; ++r) {
-            d_coefs[r][c] = diag_coef[r];
+
+        for (int r = 0; r < half_rows; ++r) {
+            // HH region: diagonal coefficients for reconstruction
+            img[r + half_rows][c + half_cols] = (std::abs(diag_coef[r]) < threshold) ? 0.0 : diag_coef[r];
+            // diagonal predictor map
             diag_pred_map[r][c] = diag_predictors[r];
         }
     }
 }
 
 // Apply adaptive lifting recursively (multi-level)
-void awt_multi_level_shared(Matrix &img, int levels,
-                     std::vector<Matrix> &horizontal_coefs,
-                     std::vector<Matrix> &vertical_coefs,
-                     std::vector<Matrix> &diagonal_coefs,
-                     std::vector<Matrix> &row_pred_maps,
-                     std::vector<Matrix> &col_pred_maps,
-                     std::vector<Matrix> &diag_pred_maps) {
-
-    // Clear up
-    horizontal_coefs.clear();
-    vertical_coefs.clear();
-    diagonal_coefs.clear();
-    row_pred_maps.clear();
-
-    int rows = img.size();
-    int cols = img[0].size();
+void awt_multi_level_shared(Matrix &img, int levels, double threshold,
+                            std::vector<Matrix> &row_pred_maps,
+                            std::vector<Matrix> &col_pred_maps,
+                            std::vector<Matrix> &diag_pred_maps) {
 
     for (int level = 0; level < levels; ++level) {
 
+        int rows = img.size() >> level;
+        int cols = img[0].size() >> level;
+
         // extract LL matrix from last level
-        Matrix approx_img(rows, std::vector<float>(cols));
+        Matrix approx_img(rows, std::vector<double>(cols));
 
 // copy the image
 #pragma omp parallel for default(shared) schedule(static)
@@ -184,34 +179,23 @@ void awt_multi_level_shared(Matrix &img, int levels,
         }
 
         // apply 2d AWT
-        Matrix h_coefs(rows, std::vector<float>(cols / 2));
-        Matrix v_coefs(rows / 2, std::vector<float>(cols));
-        Matrix d_coefs(rows / 2, std::vector<float>(cols / 2));
-        Matrix row_pred_map(rows, std::vector<float>(cols / 2));
-        Matrix col_pred_map(rows / 2, std::vector<float>(cols));
-        Matrix diag_pred_map(rows / 2, std::vector<float>(cols / 2));
-        awt_2d_shared(approx_img, h_coefs, v_coefs, d_coefs,
-               row_pred_map, col_pred_map, diag_pred_map);
+        Matrix row_pred_map(rows, std::vector<double>(cols / 2));
+        Matrix col_pred_map(rows / 2, std::vector<double>(cols));
+        Matrix diag_pred_map(rows / 2, std::vector<double>(cols / 2));
+        awt_2d_shared(approx_img, row_pred_map, col_pred_map, diag_pred_map, threshold);
 
         // coefficents for reconstruction
-        horizontal_coefs.push_back(h_coefs);
-        vertical_coefs.push_back(v_coefs);
-        diagonal_coefs.push_back(d_coefs);
         row_pred_maps.push_back(row_pred_map);
         col_pred_maps.push_back(col_pred_map);
         diag_pred_maps.push_back(diag_pred_map);
 
 // update the image with the approximation
 #pragma omp parallel for default(shared) schedule(static)
-        for (int r = 0; r < rows / 2; ++r) {
-            for (int c = 0; c < cols / 2; ++c) {
+        for (int r = 0; r < rows; ++r) {
+            for (int c = 0; c < cols; ++c) {
                 img[r][c] = approx_img[r][c];
             }
         }
-
-        // update rows and cols for next level
-        rows /= 2;
-        cols /= 2;
     }
 }
 
@@ -220,7 +204,9 @@ void awt_multi_level_shared(Matrix &img, int levels,
  *******************************************************************************/
 
 // Reconstruct 1D AWT
-void reconst_awt_1d_shared(std::vector<float> &data, const std::vector<float> &coefs, const std::vector<int> &predictors) {
+void reconst_awt_1d_shared(std::vector<double> &data,
+                           const std::vector<double> &coefs,
+                           const std::vector<int> &predictors) {
     int n = coefs.size();
 
     // Undo update step
@@ -230,7 +216,7 @@ void reconst_awt_1d_shared(std::vector<float> &data, const std::vector<float> &c
         int len = update_filter.size();
         int start = i - (len / 2 - 1);
 
-        float update_sum = 0.0f;
+        double update_sum = 0.0;
         for (int j = 0; j < len; ++j) {
             int idx = mirror(start + j, n);
             update_sum += update_filter[j] * coefs[idx];
@@ -249,7 +235,7 @@ void reconst_awt_1d_shared(std::vector<float> &data, const std::vector<float> &c
 
         int len = filter.size();
         int start_index = odd_idx - len + 1;
-        float pred_val = 0.0f;
+        double pred_val = 0.0;
 
         for (int j = 0; j < len; ++j) {
             int idx = mirror(start_index + j * 2, data.size());
@@ -261,52 +247,47 @@ void reconst_awt_1d_shared(std::vector<float> &data, const std::vector<float> &c
     }
 }
 
-// Reconstruct 2D AWT
-void reconst_awt_2d_shared(Matrix &img, const Matrix &h_coefs, const Matrix &v_coefs, const Matrix &d_coefs,
-                        const Matrix &row_pred_map, const Matrix &col_pred_map, const Matrix &diag_pred_map) {
-    int rows = img.size();
-    int cols = img[0].size();
+void reconst_awt_2d_shared(Matrix &img,
+                           int rows, int cols,
+                           const Matrix &row_pred_map,
+                           const Matrix &col_pred_map,
+                           const Matrix &diag_pred_map) {
+    int half_rows = rows / 2;
+    int half_cols = cols / 2;
 
-    // Create a temporary image with the same size as the original
-    Matrix temp_img = img;
+    Matrix temp_img(rows, std::vector<double>(cols));
 
-    // TODO: do I need this
-    // diagonal reconstruction
-    // for (int c = 0; c < cols / 2; ++c) {
-    //     std::vector<float> diag(rows);
-    //     std::vector<float> diag_coef(rows / 2);
-    //     std::vector<int> diag_predictors(rows / 2);
+    // HH: Reconstruct diagonal coefficients
+    for (int c = 0; c < half_cols; ++c) {
+        std::vector<double> diag(rows);
+        std::vector<double> diag_coef(half_rows);
+        std::vector<int> diag_predictors(half_rows);
 
-    //     // Setup even samples (horizontal details)
-    //     for (int r = 0; r < rows / 2; ++r) {
-    //         diag[2 * r] = h_coefs[r][c];
-    //         diag_coef[r] = d_coefs[r][c];
-    //         diag_predictors[r] = static_cast<int>(diag_pred_map[r][c]);
-    //     }
+        for (int r = 0; r < half_rows; ++r) {
+            diag[2 * r] = img[r][c + half_cols];
+            diag_coef[r] = img[r + half_rows][c + half_cols];
+            diag_predictors[r] = diag_pred_map[r][c];
+        }
 
-    //     // Reconstruct 1D AWT
-    //     reconst_awt_1d_shared(diag, diag_coef, diag_predictors);
+        reconst_awt_1d_shared(diag, diag_coef, diag_predictors);
 
-    //     // Save the reconstructed horizontal details
-    //     for (int r = 0; r < rows; ++r) {
-    //         temp_img[r][c] = diag[r];
-    //     }
-    // }
+        for (int r = 0; r < rows; ++r) {
+            temp_img[r][c + half_cols] = diag[r];
+        }
+    }
 
-    // column wise reconstruction
-    for (int c = 0; c < cols / 2; ++c) {
-        std::vector<float> col(rows);
-        std::vector<float> col_coef(rows / 2);
-        std::vector<int> col_predictors(rows / 2);
+    // LH: Reconstruct vertical coefficients
+    for (int c = 0; c < half_cols; ++c) {
+        std::vector<double> col(rows);
+        std::vector<double> col_coef(half_rows);
+        std::vector<int> col_predictors(half_rows);
 
-        // TODO: optimize?
-        for (int r = 0; r < rows / 2; ++r) {
+        for (int r = 0; r < half_rows; ++r) {
             col[2 * r] = img[r][c];
-            col_coef[r] = v_coefs[r][c];
+            col_coef[r] = img[r + half_rows][c];
             col_predictors[r] = col_pred_map[r][c];
         }
 
-        // Reconstruct 1D AWT
         reconst_awt_1d_shared(col, col_coef, col_predictors);
 
         for (int r = 0; r < rows; ++r) {
@@ -314,19 +295,18 @@ void reconst_awt_2d_shared(Matrix &img, const Matrix &h_coefs, const Matrix &v_c
         }
     }
 
-    // row wise reconstruction
+    // HL: Reconstruct horizontal coefficients
     for (int r = 0; r < rows; ++r) {
-        std::vector<float> row(cols);
-        std::vector<float> row_coef(cols / 2);
-        std::vector<int> row_predictors(cols / 2);
+        std::vector<double> row(cols);
+        std::vector<double> row_coef(half_cols);
+        std::vector<int> row_predictors(half_cols);
 
-        for (int c = 0; c < cols / 2; ++c) {
+        for (int c = 0; c < half_cols; ++c) {
             row[2 * c] = temp_img[r][c];
-            row_coef[c] = h_coefs[r][c];
+            row_coef[c] = temp_img[r][c + half_cols];
             row_predictors[c] = row_pred_map[r][c];
         }
 
-        // Reconstruct 1D AWT
         reconst_awt_1d_shared(row, row_coef, row_predictors);
 
         for (int c = 0; c < cols; ++c) {
@@ -337,76 +317,22 @@ void reconst_awt_2d_shared(Matrix &img, const Matrix &h_coefs, const Matrix &v_c
 
 // Reconstruct the image from coefficients
 void reconst_awt_shared(Matrix &img, int levels,
-                     const std::vector<Matrix> &horizontal_coefs,
-                     const std::vector<Matrix> &vertical_coefs,
-                     const std::vector<Matrix> &diagonal_coefs,
-                     const std::vector<Matrix> &row_pred_maps,
-                     const std::vector<Matrix> &col_pred_maps,
-                     const std::vector<Matrix> &diag_pred_maps) {
+                        const std::vector<Matrix> &row_pred_maps,
+                        const std::vector<Matrix> &col_pred_maps,
+                        const std::vector<Matrix> &diag_pred_maps) {
 
     for (int level = levels - 1; level >= 0; --level) {
 
-        int rows = img.size() / (1 << level);
-        int cols = img.size() / (1 << level);
-
-        // original image for each level
-        // TODO: optimize by inplace and indices?
-        Matrix original_img(rows, std::vector<float>(cols));
-        for (int r = 0; r < rows / 2; ++r) {
-            for (int c = 0; c < cols / 2; ++c) {
-                original_img[r][c] = img[r][c];
-            }
-        }
+        int rows = img.size() >> level;
+        int cols = img[0].size() >> level;
+        int half_rows = rows / 2;
+        int half_cols = cols / 2;
 
         // Reconstruct 2D AWT
-        reconst_awt_2d_shared(original_img,
-                           horizontal_coefs[level],
-                           vertical_coefs[level],
-                           diagonal_coefs[level],
-                           row_pred_maps[level],
-                           col_pred_maps[level],
-                           diag_pred_maps[level]);
-
-        // Copy the data back
-        for (int r = 0; r < rows; ++r) {
-            for (int c = 0; c < cols; ++c) {
-                img[r][c] = original_img[r][c];
-            }
-        }
-    }
-}
-
-/*******************************************************************************
- *                             Apply Threshold                                 *
- *******************************************************************************/
-
-// Apply thresholding for compression
-// TODO: integrate to transformation
-void apply_thresholding(std::vector<Matrix> &all_details_h,
-                        std::vector<Matrix> &all_details_v,
-                        std::vector<Matrix> &all_details_d,
-                        float threshold) {
-    for (size_t level = 0; level < all_details_h.size(); ++level) {
-        // Apply thresholding to each type of detail coefficients
-        for (auto &row : all_details_h[level]) {
-            for (auto &val : row) {
-                if (std::abs(val) < threshold)
-                    val = 0.0f;
-            }
-        }
-
-        for (auto &row : all_details_v[level]) {
-            for (auto &val : row) {
-                if (std::abs(val) < threshold)
-                    val = 0.0f;
-            }
-        }
-
-        for (auto &row : all_details_d[level]) {
-            for (auto &val : row) {
-                if (std::abs(val) < threshold)
-                    val = 0.0f;
-            }
-        }
+        reconst_awt_2d_shared(img,
+                              rows, cols,
+                              row_pred_maps[level],
+                              col_pred_maps[level],
+                              diag_pred_maps[level]);
     }
 }
