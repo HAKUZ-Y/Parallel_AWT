@@ -198,6 +198,68 @@ void awt_multi_level_mpi(Matrix &img, int levels, double threshold,
                 approx_img[r].begin(), approx_img[r].end(),
                 img[start_index + r].begin());
         }
+
+        std::vector<int> recvcounts(nproc), displs(nproc);
+        int offset = 0;
+        for (int p = 0; p < nproc; ++p) {
+
+            int p_rows = rows / nproc;
+            if (p == nproc - 1) {
+                p_rows += rows % nproc;
+            }
+
+            recvcounts[p] = p_rows * cols;
+            displs[p] = offset;
+            offset += recvcounts[p];
+        }
+
+        std::vector<double> flat_local(rows_num * cols);
+        for (int r = 0; r < rows_num; ++r) {
+            std::copy_n(img[start_index + r].begin(), cols, flat_local.begin() + r * cols);
+        }
+
+        std::vector<double> flat_global;
+        if (pid == 0) {
+            flat_global.resize(rows * cols);
+        }
+
+        MPI_Gatherv(flat_local.data(), rows_num * cols, MPI_DOUBLE,
+                    flat_global.data(), recvcounts.data(), displs.data(),
+                    MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+        if (pid == 0) {
+
+            int top_row_offset = 0;
+            int bottom_row_offset = 0;
+            for (int p = 0; p < nproc; ++p) {
+                int p_rows = rows / nproc;
+                if (p == nproc - 1) {
+                    p_rows += rows % nproc;
+                }
+
+                // copy LL and HL
+                for (int r = 0; r < p_rows / 2; ++r) {
+                    std::copy_n(
+                        flat_global.data() + displs[p] + r * cols,
+                        cols,
+                        img[ top_row_offset + r].begin());
+                }
+
+                // copy LH and HH
+                for (int r = p_rows / 2; r < p_rows; ++r) {
+                    int bottom_start = (rows / 2) + bottom_row_offset + (r - p_rows / 2);
+                    std::copy_n(
+                        flat_global.data() + displs[p] + r * cols,
+                        cols,
+                        img[bottom_start].begin());
+                }
+
+                top_row_offset += p_rows / 2;
+                bottom_row_offset += p_rows / 2;
+            }
+        }
+
+        MPI_Barrier(MPI_COMM_WORLD);
     }
 }
 

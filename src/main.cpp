@@ -129,12 +129,15 @@ int main(int argc, char *argv[]) {
     Matrix transformed_img = original_img;
     awt_multi_level_mpi(transformed_img, levels, threshold, row_pred_maps, col_pred_maps, diag_pred_maps, pid, nproc);
 
+    MPI_Barrier(MPI_COMM_WORLD);
+
     if (pid == 0) {
         reconst_start = std::chrono::steady_clock::now();
     }
     Matrix reconst_img = transformed_img;
-    reconst_awt_mpi(reconst_img, levels,
-                    row_pred_maps, col_pred_maps, diag_pred_maps);
+    // reconst_awt_mpi(reconst_img, levels,
+    //                 row_pred_maps, col_pred_maps, diag_pred_maps);
+
 
     if (pid == 0) {
         // const double compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - transform_start).count();
@@ -147,10 +150,10 @@ int main(int argc, char *argv[]) {
         // std::cout << "\033[34mTotal time (sec): " << std::fixed << std::setprecision(10) << total_time << "\033[0m\n";
 
         // Save transformed image
-        // save_image_to_file(transformed_file, transformed_img);
+        save_image_to_file(transformed_file, transformed_img);
         // Save reconstructed image
         // save_image_to_file(reconst_file, reconst_img);
-        std::cout << "Reconstructed image saved to: " << reconst_file << std::endl;
+        // std::cout << "Reconstructed image saved to: " << reconst_file << std::endl;
 
         // Metrics computation
         float recon_mse = compute_mse(original_img, reconst_img);
