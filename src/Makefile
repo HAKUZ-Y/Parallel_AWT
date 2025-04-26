@@ -8,6 +8,7 @@ LDFLAGS := -L/opt/homebrew/opt/libomp/lib
 TARGET := awt
 SRCS := main.cpp
 OBJS := $(SRCS:.cpp=.o)
+DEPS := $(SRCS:.cpp=.d)
 
 all: $(TARGET)
 
@@ -15,7 +16,10 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS) $(LDFLAGS)
 
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+
+-include $(DEPS)
 
 
 run: $(TARGET)
