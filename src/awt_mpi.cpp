@@ -1,3 +1,4 @@
+#include "helper.hpp"
 #include "metrics.hpp"
 #include <algorithm>
 #include <chrono>
@@ -6,18 +7,11 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <mpi.h>
 #include <sstream>
 #include <string>
 #include <unistd.h>
 #include <vector>
-
-#include <mpi.h>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
 
 using Matrix = std::vector<std::vector<float>>;
 constexpr float INF = 1e9f;
@@ -25,154 +19,12 @@ constexpr float INF = 1e9f;
 // TODO: find more with some sources
 // Assume odd length for now
 const Matrix AWT_PREDICTORS = {
-    // {0},
-    // {0.5f, 0, 0.5f},
-    // {-0.125f, 0, 0.25f, 0.75f, 0.25f, 0, -0.125f}};
     {0.5f, 0.5f},                    // avg of neighbors
     {-0.25f, 0.75f, 0.75f, -0.25f}}; // a more complex filter
 
 const Matrix AWT_UPDATES = {           // to preserve structure around 2 * i
     {0.25f, 0.25f},                    // for the first predictor
     {-0.125f, 0.25f, 0.25f, -0.125f}}; // for the more complex predictor
-
-/*******************************************************************************
- *                              Helper Functions                               *
- *******************************************************************************/
-
-// Clamp the boundary for predictions
-inline int
-clamp(int x, int min, int max) {
-    return std::max(min, std::min(max, x));
-}
-
-namespace fs = std::filesystem;
-
-std::string extract_base_name(const std::string &filepath) {
-    fs::path path_obj(filepath);
-    return path_obj.stem().string();
-}
-
-void apply_threshold(Matrix &coeffs, float threshold) {
-    for (auto &row : coeffs) {
-        for (auto &val : row) {
-            if (std::abs(val) < threshold) {
-                val = 0.0f;
-            }
-        }
-    }
-}
-
-/*******************************************************************************
- *                               Image Processing                              *
- *******************************************************************************/
-
-// Load image
-void load_image_from_file(const std::string &filename, Matrix &img) {
-    std::ifstream infile(filename);
-    if (!infile) {
-        std::cerr << "Error: Could not open file in load_image_from_file " << filename << std::endl;
-        exit(EXIT_FAILURE);
-    }
-
-    std::string line;
-
-    while (std::getline(infile, line)) {
-        std::vector<float> row;
-        std::istringstream iss(line);
-        float val;
-
-        while (iss >> val) {
-            row.push_back(val);
-        }
-
-        if (!row.empty()) {
-            img.push_back(row);
-        }
-    }
-
-    // check square image
-    if (img.size() != img[0].size()) {
-        std::cerr << "Error: Invalid image size " << img.size() << "x" << img[0].size() << std::endl;
-        exit(EXIT_FAILURE);
-    }
-
-    std::cout << "Load image " << filename << " with size "
-              << img.size() << "x" << img[0].size() << std::endl;
-}
-
-// Save image
-void save_image_to_file(const std::string &filename, const Matrix &img) {
-    std::ofstream outfile(filename);
-    if (!outfile) {
-        std::cerr << "Error: Could not open file in save_image_to_file" << filename << std::endl;
-        exit(EXIT_FAILURE);
-    }
-
-    for (const auto &row : img) {
-        for (size_t i = 0; i < img.size(); ++i) {
-            outfile << row[i];
-            if (i < img.size() - 1) {
-                outfile << " ";
-            }
-        }
-        outfile << std::endl;
-    }
-}
-
-Matrix load_grayscale_image(const std::string &filename) {
-    int width, height, channels;
-    unsigned char *img_data = stbi_load(filename.c_str(), &width, &height, &channels, 1); // force grayscale
-
-    if (!img_data) {
-        std::cerr << "Failed to load image: " << filename << "\n";
-        exit(EXIT_FAILURE);
-    }
-
-    Matrix img(height, std::vector<float>(width));
-    for (int y = 0; y < height; ++y)
-        for (int x = 0; x < width; ++x)
-            img[y][x] = static_cast<float>(img_data[y * width + x]);
-
-    stbi_image_free(img_data);
-    return img;
-}
-
-void save_grayscale_image(const std::string &filename, const Matrix &img) {
-    int height = img.size();
-    int width = img[0].size();
-
-    std::vector<unsigned char> out_data(width * height);
-
-    for (int y = 0; y < height; ++y)
-        for (int x = 0; x < width; ++x)
-            out_data[y * width + x] = static_cast<unsigned char>(
-                std::clamp(img[y][x], 0.0f, 255.0f));
-
-    if (!stbi_write_png(filename.c_str(), width, height, 1, out_data.data(), width)) {
-        std::cerr << "Failed to write image: " << filename << "\n";
-        exit(EXIT_FAILURE);
-    }
-}
-
-void cropCompressed(const std::string &filename, const Matrix &img) {
-    int height = img.size();
-    int width = img[0].size();
-
-    int outHeight = (height + 1) / 2;
-    int outWidth = (width + 1) / 2;
-
-    std::vector<unsigned char> out_data(outWidth * outHeight);
-
-    for (int y = 0; y < outHeight; ++y)
-        for (int x = 0; x < outWidth; ++x)
-            out_data[y * outWidth + x] = static_cast<unsigned char>(
-                std::clamp(img[y][x], 0.0f, 255.0f));
-
-    if (!stbi_write_png(filename.c_str(), outWidth, outHeight, 1, out_data.data(), outWidth)) {
-        std::cerr << "Failed to write image: " << filename << "\n";
-        exit(EXIT_FAILURE);
-    }
-}
 
 /*******************************************************************************
  *                               AWT Transformation                            *
@@ -497,12 +349,12 @@ int main(int argc, char *argv[]) {
         apply_threshold(v, 5.0f);
         apply_threshold(d, 5.0f);
 
+        const double compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - compute_start).count();
+        std::cout << "\033[31mComputation time (sec): " << std::fixed << std::setprecision(10) << compute_time << "\033[0m\n";
+
         save_grayscale_image("compressed.png", img);
         save_image_to_file("compressed.txt", img);
         cropCompressed("compressCropped.png", img);
-
-        const double compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - compute_start).count();
-        std::cout << "\033[31mComputation time (sec): " << std::fixed << std::setprecision(10) << compute_time << "\033[0m\n";
     }
 
     MPI_Finalize();
