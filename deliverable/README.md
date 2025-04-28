@@ -14,3 +14,7 @@ This is the source code for mpi version of awt, to execute it
 - The input image is squared.
 - The level is between 1 and log_2(data_size).
 - The threshold should be non-negative.
+
+
+## DatasetL
+https://github.com/HAKUZ-Y/Parallel_AWT/blob/main/deliverable/dataset/README.md
