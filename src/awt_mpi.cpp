@@ -13,6 +13,8 @@
 #include <unistd.h>
 #include <vector>
 
+#include <omp.h>
+
 using Matrix = std::vector<std::vector<float>>;
 constexpr float INF = 1e9f;
 // Predictors
@@ -107,88 +109,72 @@ void awt_transform_2d_mpi(Matrix &img,
     int row_remainder = rows % nproc;
 
     // Each process handles its assigned rows
-    std::vector<int> row_counts(nproc), row_displs(nproc);
-    std::vector<int> counts_h(nproc), displs_h(nproc);
+    std::vector<int> row_counts(nproc), row_displs(nproc), counts_h(nproc), displs_h(nproc);
     for (int i = 0; i < nproc; ++i) {
         row_counts[i] = row_chunk_size + (i < row_remainder ? 1 : 0);
         row_displs[i] = (i == 0) ? 0 : row_displs[i - 1] + row_counts[i - 1];
-        counts_h[i] = row_counts[i] * (cols / 2);
-        displs_h[i] = row_displs[i] * (cols / 2);
+        counts_h[i] = row_counts[i] * (cols / 2) * 3; // times 3 because packed
+        displs_h[i] = (i == 0) ? 0 : displs_h[i - 1] + counts_h[i - 1];
     }
 
     int local_rows = row_counts[pid];
     int start_row = row_displs[pid];
 
-    // local horizontal buffers
-    std::vector<float> local_LL(local_rows * (cols / 2));
-    std::vector<float> local_HL(local_rows * (cols / 2));
-    std::vector<float> local_row_pred(local_rows * (cols / 2));
-    std::vector<float> gathered_LL(rows * (cols / 2));
-    std::vector<float> gathered_HL(rows * (cols / 2));
-    std::vector<float> gathered_row_pred(rows * (cols / 2));
+    // --- Horizontal transform ---
+    std::vector<float> local_horizontal_pack(local_rows * (cols / 2) * 3);
 
-    // horizontal transform
+    // #pragma omp parallel for default(shared) schedule(static)
     for (int r = 0; r < local_rows; ++r) {
         std::vector<float> row = img[start_row + r];
         std::vector<float> row_coef, row_pred;
-
         awt_1d(row, row_coef, row_pred);
 
         for (int c = 0; c < cols / 2; ++c) {
-            local_LL[r * (cols / 2) + c] = row[c];
-            local_HL[r * (cols / 2) + c] = row_coef[c];
-            local_row_pred[r * (cols / 2) + c] = row_pred[c];
+            int idx = (r * (cols / 2) + c) * 3;
+            local_horizontal_pack[idx] = row[c];
+            local_horizontal_pack[idx + 1] = row_coef[c];
+            local_horizontal_pack[idx + 2] = row_pred[c];
         }
     }
 
-    MPI_Allgatherv(local_LL.data(), counts_h[pid], MPI_FLOAT,
-                   gathered_LL.data(), counts_h.data(), displs_h.data(), MPI_FLOAT, MPI_COMM_WORLD);
-    MPI_Allgatherv(local_HL.data(), counts_h[pid], MPI_FLOAT,
-                   gathered_HL.data(), counts_h.data(), displs_h.data(), MPI_FLOAT, MPI_COMM_WORLD);
-    MPI_Allgatherv(local_row_pred.data(), counts_h[pid], MPI_FLOAT,
-                   gathered_row_pred.data(), counts_h.data(), displs_h.data(), MPI_FLOAT, MPI_COMM_WORLD);
+    std::vector<float> gathered_horizontal_pack(rows * (cols / 2) * 3);
 
-    // Fill img and h_coefs
+    MPI_Allgatherv(local_horizontal_pack.data(), counts_h[pid], MPI_FLOAT,
+                   gathered_horizontal_pack.data(), counts_h.data(), displs_h.data(), MPI_FLOAT, MPI_COMM_WORLD);
+
+    // Unpack gathered horizontal data
     h_coefs.resize(rows, std::vector<float>(cols / 2));
     row_pred_map.resize(rows, std::vector<float>(cols / 2));
-    for (int r = 0; r < rows; ++r)
+    for (int r = 0; r < rows; ++r) {
         for (int c = 0; c < cols / 2; ++c) {
-            img[r][c] = gathered_LL[r * (cols / 2) + c];
-            h_coefs[r][c] = gathered_HL[r * (cols / 2) + c];
-            row_pred_map[r][c] = gathered_row_pred[r * (cols / 2) + c];
+            int idx = (r * (cols / 2) + c) * 3;
+            img[r][c] = gathered_horizontal_pack[idx];
+            h_coefs[r][c] = gathered_horizontal_pack[idx + 1];
+            row_pred_map[r][c] = gathered_horizontal_pack[idx + 2];
         }
+    }
 
-    // ########################################################################
-    MPI_Barrier(MPI_COMM_WORLD);
-    // ########################################################################
-
-    // vertical transform
+    // --- Vertical transform ---
     int half_rows = rows / 2;
     int half_cols = cols / 2;
 
     int col_chunk_size = half_cols / nproc;
     int col_remainder = half_cols % nproc;
 
-    std::vector<int> col_counts(nproc), col_displs(nproc);
-    std::vector<int> counts_v(nproc), displs_v(nproc);
+    std::vector<int> col_counts(nproc), col_displs(nproc), counts_v(nproc), displs_v(nproc);
     for (int i = 0; i < nproc; ++i) {
         col_counts[i] = col_chunk_size + (i < col_remainder ? 1 : 0);
         col_displs[i] = (i == 0) ? 0 : col_displs[i - 1] + col_counts[i - 1];
-        counts_v[i] = half_rows * col_counts[i];
-        displs_v[i] = half_rows * col_displs[i];
+        counts_v[i] = half_rows * col_counts[i] * 3; // times 3 because packed
+        displs_v[i] = (i == 0) ? 0 : displs_v[i - 1] + counts_v[i - 1];
     }
 
     int local_cols = col_counts[pid];
     int start_col = col_displs[pid];
 
-    // local vertical buffers
-    std::vector<float> local_LL_v(half_rows * local_cols);
-    std::vector<float> local_v(half_rows * local_cols);
-    std::vector<float> local_col_pred(half_rows * local_cols);
-    std::vector<float> gathered_LL_v(half_rows * half_cols);
-    std::vector<float> gathered_v(half_rows * half_cols);
-    std::vector<float> gathered_col_pred(half_rows * half_cols);
+    std::vector<float> local_vertical_pack(half_rows * local_cols * 3);
 
+    // #pragma omp parallel for default(shared) schedule(static)
     for (int c = 0; c < local_cols; ++c) {
         int global_c = start_col + c;
         std::vector<float> col(rows);
@@ -200,43 +186,34 @@ void awt_transform_2d_mpi(Matrix &img,
         awt_1d(col, col_coef, col_pred);
 
         for (int r = 0; r < half_rows; ++r) {
-            int idx = c * half_rows + r;
-            local_LL_v[idx] = col[r];
-            local_v[idx] = col_coef[r];
-            local_col_pred[idx] = col_pred[r];
+            int idx = (c * half_rows + r) * 3;
+            local_vertical_pack[idx] = col[r];
+            local_vertical_pack[idx + 1] = col_coef[r];
+            local_vertical_pack[idx + 2] = col_pred[r];
         }
     }
 
-    MPI_Allgatherv(local_LL_v.data(), counts_v[pid], MPI_FLOAT,
-                   gathered_LL_v.data(), counts_v.data(), displs_v.data(), MPI_FLOAT, MPI_COMM_WORLD);
-    MPI_Allgatherv(local_v.data(), counts_v[pid], MPI_FLOAT,
-                   gathered_v.data(), counts_v.data(), displs_v.data(), MPI_FLOAT, MPI_COMM_WORLD);
-    MPI_Allgatherv(local_col_pred.data(), counts_v[pid], MPI_FLOAT,
-                   gathered_col_pred.data(), counts_v.data(), displs_v.data(), MPI_FLOAT, MPI_COMM_WORLD);
+    std::vector<float> gathered_vertical_pack(half_rows * half_cols * 3);
 
+    MPI_Allgatherv(local_vertical_pack.data(), counts_v[pid], MPI_FLOAT,
+                   gathered_vertical_pack.data(), counts_v.data(), displs_v.data(), MPI_FLOAT, MPI_COMM_WORLD);
+
+    // Unpack gathered vertical data
     v_coefs.resize(half_rows, std::vector<float>(half_cols));
     col_pred_map.resize(half_rows, std::vector<float>(half_cols));
-    for (int c = 0; c < half_cols; ++c)
+    for (int c = 0; c < half_cols; ++c) {
         for (int r = 0; r < half_rows; ++r) {
-            int idx = c * half_rows + r;
-            img[r][c] = gathered_LL_v[idx];
-            v_coefs[r][c] = gathered_v[idx];
-            col_pred_map[r][c] = gathered_col_pred[idx];
+            int idx = (c * half_rows + r) * 3;
+            img[r][c] = gathered_vertical_pack[idx];
+            v_coefs[r][c] = gathered_vertical_pack[idx + 1];
+            col_pred_map[r][c] = gathered_vertical_pack[idx + 2];
         }
+    }
 
-    // ########################################################################
-    MPI_Barrier(MPI_COMM_WORLD);
-    // ########################################################################
+    // --- Diagonal transform ---
+    std::vector<float> local_diagonal_pack(half_rows * local_cols * 3);
 
-    // diagonal transform
-    // local diagonal buffers
-    std::vector<float> local_LL_d(half_rows * local_cols);
-    std::vector<float> local_d(half_rows * local_cols);
-    std::vector<float> local_diag_pred(half_rows * local_cols);
-    std::vector<float> gathered_LL_d(half_rows * half_cols);
-    std::vector<float> gathered_d(half_rows * half_cols);
-    std::vector<float> gathered_diag_pred(half_rows * half_cols);
-
+    // #pragma omp parallel for default(shared) schedule(static)
     for (int c = 0; c < local_cols; ++c) {
         int global_c = start_col + c;
         std::vector<float> diag(rows);
@@ -248,33 +225,31 @@ void awt_transform_2d_mpi(Matrix &img,
         awt_1d(diag, diag_coef, diag_pred);
 
         for (int r = 0; r < half_rows; ++r) {
-            int idx = c * half_rows + r;
-            local_LL_d[idx] = diag[r];
-            local_d[idx] = diag_coef[r];
-            local_diag_pred[idx] = diag_pred[r];
+            int idx = (c * half_rows + r) * 3;
+            local_diagonal_pack[idx] = diag[r];
+            local_diagonal_pack[idx + 1] = diag_coef[r];
+            local_diagonal_pack[idx + 2] = diag_pred[r];
         }
     }
 
-    MPI_Allgatherv(local_LL_d.data(), counts_v[pid], MPI_FLOAT,
-                   gathered_LL_d.data(), counts_v.data(), displs_v.data(), MPI_FLOAT, MPI_COMM_WORLD);
-    MPI_Allgatherv(local_d.data(), counts_v[pid], MPI_FLOAT,
-                   gathered_d.data(), counts_v.data(), displs_v.data(), MPI_FLOAT, MPI_COMM_WORLD);
-    MPI_Allgatherv(local_diag_pred.data(), counts_v[pid], MPI_FLOAT,
-                   gathered_diag_pred.data(), counts_v.data(), displs_v.data(), MPI_FLOAT, MPI_COMM_WORLD);
+    std::vector<float> gathered_diagonal_pack(half_rows * half_cols * 3);
 
+    MPI_Allgatherv(local_diagonal_pack.data(), counts_v[pid], MPI_FLOAT,
+                   gathered_diagonal_pack.data(), counts_v.data(), displs_v.data(), MPI_FLOAT, MPI_COMM_WORLD);
+
+    // Unpack gathered diagonal data
     d_coefs.resize(half_rows, std::vector<float>(half_cols));
     diag_pred_map.resize(half_rows, std::vector<float>(half_cols));
-    for (int c = 0; c < half_cols; ++c)
+    for (int c = 0; c < half_cols; ++c) {
         for (int r = 0; r < half_rows; ++r) {
-            int idx = c * half_rows + r;
-            h_coefs[r][c] = gathered_LL_d[idx];
-            d_coefs[r][c] = gathered_d[idx];
-            diag_pred_map[r][c] = gathered_diag_pred[idx];
+            int idx = (c * half_rows + r) * 3;
+            h_coefs[r][c] = gathered_diagonal_pack[idx];
+            d_coefs[r][c] = gathered_diagonal_pack[idx + 1];
+            diag_pred_map[r][c] = gathered_diagonal_pack[idx + 2];
         }
+    }
 
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    // update image
+    // --- Final image assembly ---
     for (int r = 0; r < half_rows; ++r) {
         for (int c = 0; c < half_cols; ++c) {
             img[r][c + half_cols] = h_coefs[r][c];
@@ -345,16 +320,15 @@ int main(int argc, char *argv[]) {
 
     // Apply threshold + save image
     if (pid == 0) {
-        apply_threshold(h, 5.0f);
-        apply_threshold(v, 5.0f);
-        apply_threshold(d, 5.0f);
-
         const double compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - compute_start).count();
         std::cout << "\033[31mComputation time (sec): " << std::fixed << std::setprecision(10) << compute_time << "\033[0m\n";
 
-        save_grayscale_image("compressed.png", img);
-        save_image_to_file("compressed.txt", img);
-        cropCompressed("compressCropped.png", img);
+        apply_threshold(h, 5.0f);
+        apply_threshold(v, 5.0f);
+        apply_threshold(d, 5.0f);
+        // save_grayscale_image("compressed.png", img);
+        // save_image_to_file("compressed.txt", img);
+        // cropCompressed("compressCropped.png", img);
     }
 
     MPI_Finalize();
