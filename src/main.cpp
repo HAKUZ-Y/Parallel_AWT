@@ -21,11 +21,10 @@ int main(int argc, char *argv[]) {
     int levels = 1;
     double threshold = 0.0;
     int num_threads = 1;
-    int model = 0; // 0 for shared memory, 1 for MPI
 
     // Read command line arguments
     int opt;
-    while ((opt = getopt(argc, argv, "i:l:t:n:m:")) != -1) {
+    while ((opt = getopt(argc, argv, "i:l:t:n:")) != -1) {
         switch (opt) {
         case 'i':
             input_file = optarg;
@@ -39,22 +38,15 @@ int main(int argc, char *argv[]) {
         case 'n':
             num_threads = atoi(optarg);
             break;
-        case 'm':
-            model = std::stoi(optarg);
-            if (model < 0 || model > 1) {
-                std::cerr << "Invalid mode. Use 0 for Shared Memory or 1 for MPI.\n";
-                exit(EXIT_FAILURE);
-            }
-            break;
         default:
-            std::cerr << "Usage: " << argv[0] << " -i input_file [-l level] [-t threshold] [-m mode]\n";
+            std::cerr << "Usage: " << argv[0] << " -i input_file [-l level] [-t threshold]\n";
             exit(EXIT_FAILURE);
         }
     }
 
     // check params
     if (threshold < 0.0f || num_threads <= 0) {
-        std::cerr << "Usage: " << argv[0] << " -i input_file [-l level] [-t threshold] [-m mode]\n";
+        std::cerr << "Usage: " << argv[0] << " -i input_file [-l level] [-t threshold]\n";
         exit(EXIT_FAILURE);
     }
 
@@ -62,7 +54,7 @@ int main(int argc, char *argv[]) {
 
     // check image or levels out of range: (1 - log2(n))
     if (empty(original_img) || levels < 1 || levels > floor(log2(original_img.size()))) {
-        std::cerr << "Usage: " << argv[0] << " -i input_file [-l level] [-t threshold] [-m mode]\n";
+        std::cerr << "Usage: " << argv[0] << " -i input_file [-l level] [-t threshold]\n";
         exit(EXIT_FAILURE);
     }
 
@@ -87,26 +79,19 @@ int main(int argc, char *argv[]) {
                                "_t_" + std::format("{:.2f}", threshold) + ".txt";
     Matrix reconst_img;
 
-    if (model == 0) {
-        // Shared Memory mode
-        std::cout << "Running in Shared Memory Model...\n";
+    // Shared Memory mode
+    std::cout << "Running in Shared Memory Model...\n";
 
-        // Apply multi-level AWT
-        awt_multi_level_shared(transformed_img, levels, threshold, row_pred_maps, col_pred_maps, diag_pred_maps);
+    // Apply multi-level AWT
+    awt_multi_level_shared(transformed_img, levels, threshold, row_pred_maps, col_pred_maps, diag_pred_maps);
 
-        // TODO: visulizing the coefficients
+    // TODO: visulizing the coefficients
 
+    reconst_start = std::chrono::steady_clock::now();
 
-        reconst_start = std::chrono::steady_clock::now();
-
-        reconst_img = transformed_img;
-        reconst_awt_shared(reconst_img, levels,
-                           row_pred_maps, col_pred_maps, diag_pred_maps);
-    } else {
-        // MPI mode
-        std::cout << "Next time it will...\n";
-        return 0;
-    }
+    reconst_img = transformed_img;
+    reconst_awt_shared(reconst_img, levels,
+                       row_pred_maps, col_pred_maps, diag_pred_maps);
 
     // const double compute_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - transform_start).count();
     // std::cout << "\033[31mComputation time (sec): " << std::fixed << std::setprecision(10) << compute_time << "\033[0m\n";
@@ -117,11 +102,10 @@ int main(int argc, char *argv[]) {
     // const double total_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - init_start).count();
     // std::cout << "\033[34mTotal time (sec): " << std::fixed << std::setprecision(10) << total_time << "\033[0m\n";
 
-
     // Save transformed image
-    save_image_to_file(transformed_file, transformed_img);
+    // save_image_to_file(transformed_file, transformed_img);
     // Save reconstructed image
-    save_image_to_file(reconst_file, reconst_img);
+    // save_image_to_file(reconst_file, reconst_img);
     std::cout << "Reconstructed image saved to: " << reconst_file << std::endl;
 
     // Metrics computation

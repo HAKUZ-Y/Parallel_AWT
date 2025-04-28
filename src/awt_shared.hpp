@@ -24,6 +24,13 @@ void awt_1d_shared(std::vector<double> &data, std::vector<double> &coefs, std::v
     coefs.resize(n);
     predictors.resize(n);
 
+
+    // double predict_time = 0.0;
+    // double update_time = 0.0;
+
+
+    // const auto predict_start = std::chrono::steady_clock::now();
+
 // Predict step: predict odd indices from even indices
 #pragma omp parallel for default(shared) schedule(static)
     for (int i = 0; i < n; ++i) {
@@ -33,10 +40,12 @@ void awt_1d_shared(std::vector<double> &data, std::vector<double> &coefs, std::v
         int pred_index = 0;
 
         // find the best predictor adaptively
-        // TODO: optimize
         for (size_t p = 0; p < AWT_PREDICTORS.size(); ++p) {
             const auto &filter = AWT_PREDICTORS[p];
             int len = filter.size();
+            if (len > n) {
+                continue;
+            }
             int start_index = odd_idx - len + 1;
             double pred_val = 0.0;
 
@@ -59,12 +68,11 @@ void awt_1d_shared(std::vector<double> &data, std::vector<double> &coefs, std::v
         predictors[i] = pred_index;
     }
 
+    // const auto update_start = std::chrono::steady_clock::now();
     // Update step
-    // TODO: is this the correct way/only way to update?
     // Need to match with the reverse reconstruction
-
     std::vector<double> result(data.size());
-#pragma omp parallel for default(shared) schedule(static)
+#pragma omp parallel for default(shared) schedule(dynamic)
     for (int i = 0; i < n; ++i) {
         result[2 * i] = data[2 * i]; // start from even
 
@@ -82,6 +90,11 @@ void awt_1d_shared(std::vector<double> &data, std::vector<double> &coefs, std::v
         result[2 * i + 1] = data[2 * i + 1]; // untouched odd
     }
     data = result;
+
+    // predict_time = std::chrono::duration_cast<std::chrono::duration<double>>(update_start - predict_start).count();
+    // std::cout << "\033[31m Predict step (sec): " << std::fixed << std::setprecision(10) << predict_time << "\033[0m\n";
+    // update_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - update_start).count();
+    // std::cout << "\033[34m Update step (sec): " << std::fixed << std::setprecision(10) << update_time << "\033[0m\n";
 }
 
 // Apply 2D AWT
@@ -94,6 +107,8 @@ void awt_2d_shared(Matrix &img,
     int cols = img[0].size();
     int half_rows = rows / 2;
     int half_cols = cols / 2;
+
+    // const auto row_start = std::chrono::steady_clock::now();
 
     // row wise transform
 #pragma omp parallel for default(shared) schedule(static)
@@ -113,6 +128,8 @@ void awt_2d_shared(Matrix &img,
             row_pred_map[r][c] = row_predictors[c];
         }
     }
+
+    // const auto col_start = std::chrono::steady_clock::now();
 
 // column wise transform
 #pragma omp parallel for default(shared) schedule(static)
@@ -154,6 +171,12 @@ void awt_2d_shared(Matrix &img,
             diag_pred_map[r][c] = diag_predictors[r];
         }
     }
+
+
+    // const double row_time = std::chrono::duration_cast<std::chrono::duration<double>>(col_start - row_start).count();
+    // std::cout << "\033[31m Row-wise transformation (sec): " << std::fixed << std::setprecision(10) << row_time << "\033[0m\n";
+    // const double col_time = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - col_start).count();
+    // std::cout << "\033[34m Col-wise transformation (sec): " << std::fixed << std::setprecision(10) << col_time << "\033[0m\n";
 }
 
 // Apply adaptive lifting recursively (multi-level)
@@ -325,8 +348,6 @@ void reconst_awt_shared(Matrix &img, int levels,
 
         int rows = img.size() >> level;
         int cols = img[0].size() >> level;
-        int half_rows = rows / 2;
-        int half_cols = cols / 2;
 
         // Reconstruct 2D AWT
         reconst_awt_2d_shared(img,
