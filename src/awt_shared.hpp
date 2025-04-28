@@ -60,11 +60,9 @@ void awt_1d_shared(std::vector<double> &data, std::vector<double> &coefs, std::v
     }
 
     // Update step
-    // TODO: is this the correct way/only way to update?
     // Need to match with the reverse reconstruction
-
     std::vector<double> result(data.size());
-#pragma omp parallel for default(shared) schedule(static)
+#pragma omp parallel for default(shared) schedule(dynamic)
     for (int i = 0; i < n; ++i) {
         result[2 * i] = data[2 * i]; // start from even
 

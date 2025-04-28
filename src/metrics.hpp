@@ -6,6 +6,9 @@
 
 using Matrix = std::vector<std::vector<double>>;
 
+// https://en.wikipedia.org/wiki/Structural_similarity_index_measure
+// https://en.wikipedia.org/wiki/Mean_squared_error
+
 // Mean Squared Error (MSE)
 inline double compute_mse(const Matrix& img1, const Matrix& img2) {
     int rows = img1.size();
