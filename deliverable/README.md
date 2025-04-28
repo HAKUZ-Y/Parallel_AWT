@@ -16,5 +16,5 @@ This is the source code for mpi version of awt, to execute it
 - The threshold should be non-negative.
 
 
-## DatasetL
+## Dataset:
 https://github.com/HAKUZ-Y/Parallel_AWT/blob/main/deliverable/dataset/README.md
