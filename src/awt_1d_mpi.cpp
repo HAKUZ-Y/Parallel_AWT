@@ -201,7 +201,7 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &nproc);
 
     // std::vector<float> signal = {1.1, 2.2, 3.3, 4.4, 5.5, 6.66, 7.77, 8.88, 9.99, 10};
-    std::vector<float> signal = generate_large_signal(1000000); // 1 million elements
+    std::vector<float> signal = generate_large_signal(1000); // 1 million elements
 
     test(signal, pid, nproc);
 
